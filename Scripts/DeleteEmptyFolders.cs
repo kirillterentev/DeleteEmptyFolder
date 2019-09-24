@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
+#if UNITY_EDITOR
+
 namespace KillEmpty
 {
 	public class DeleteEmptyFolders : EditorWindow
@@ -17,6 +19,9 @@ namespace KillEmpty
 		}
 
 		private static readonly string META_POSTFIX = ".meta";
+
+		private static readonly string IGNORE_LIST_PATH =
+			$"{Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)}\\IgnoredFolders({Application.productName})";
 
 		private static List<Folder> FoundedFolders = new List<Folder>();
 		private static ParallelLoopResult ResultSearchEmptyFolders;
@@ -40,6 +45,10 @@ namespace KillEmpty
 			FoundedFolders.Clear();
 
 			ResultSearchEmptyFolders = Parallel.ForEach<string>(InternalFolders, FindEmptyFolders);
+
+			while (!ResultSearchEmptyFolders.IsCompleted) { }
+
+			FilterFoundedFolders();
 		}
 
 		private static void FindEmptyFolders(string path)
@@ -65,6 +74,31 @@ namespace KillEmpty
 					FindEmptyFolders(folder);
 				}
 			}
+		}
+
+		private static void FilterFoundedFolders()
+		{
+			try
+			{
+				using (StreamReader str = new StreamReader(IGNORE_LIST_PATH, System.Text.Encoding.Default))
+				{
+					string line;
+					while ((line = str.ReadLine()) != null)
+					{
+						foreach (var folder in FoundedFolders)
+						{
+							if (folder.Path == line)
+							{
+								FoundedFolders.Remove(folder);
+								break;
+							}
+						}
+					}
+				}
+			} 
+			catch (Exception e) { }
+
+			IsSearchingComplete = true;
 		}
 
 		private static bool IsEmpty(string path)
@@ -110,6 +144,12 @@ namespace KillEmpty
 			}
 		}
 
+		private static void IgnoreFolder(string path)
+		{
+			File.AppendAllText(IGNORE_LIST_PATH, $"{path}\n" );
+			FindEmptyFoldersInAssets();
+		}
+
 		private void OnGUI()
 		{
 			EditorGUILayout.BeginHorizontal();
@@ -117,7 +157,6 @@ namespace KillEmpty
 			if (GUILayout.Button("Search", GUILayout.Width(100)))
 			{
 				FindEmptyFoldersInAssets();
-				IsSearchingComplete = true;
 			}
 
 			if (GUILayout.Button("Clear", GUILayout.Width(100)))
@@ -136,7 +175,16 @@ namespace KillEmpty
 
 				foreach (var folder in FoundedFolders)
 				{
-					folder.Toogle = EditorGUILayout.ToggleLeft(folder.Path, folder.Toogle, GUI.skin.label);
+					EditorGUILayout.BeginHorizontal();
+
+						folder.Toogle = EditorGUILayout.ToggleLeft(folder.Path, folder.Toogle, GUI.skin.label);
+						if (GUILayout.Button("Ignore", GUI.skin.button, GUILayout.Width(80)))
+						{
+							IgnoreFolder(folder.Path);
+							break;
+						}
+
+					EditorGUILayout.EndHorizontal();
 				}
 
 				EditorGUILayout.EndScrollView();
@@ -145,11 +193,11 @@ namespace KillEmpty
 			{
 				if (IsSearchingComplete && ResultSearchEmptyFolders.IsCompleted)
 				{
-					EditorGUILayout.TextArea("Пустых папок не найдено...", GUILayout.Width(490), GUILayout.Height(255));
+					EditorGUILayout.TextArea("Пустых папок не найдено...", GUILayout.Width(495), GUILayout.Height(255));
 				}
 				else
 				{
-					EditorGUILayout.TextArea("", GUILayout.Width(490), GUILayout.Height(255));
+					EditorGUILayout.TextArea("", GUILayout.Width(495), GUILayout.Height(255));
 				}
 			}
 
@@ -177,3 +225,5 @@ namespace KillEmpty
 		}
 	}
 }
+
+#endif
