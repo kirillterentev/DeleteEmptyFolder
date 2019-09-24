@@ -1,0 +1,79 @@
+﻿# =============== #
+# Unity generated #
+# =============== #
+/Temp/
+/Assets/Temp/
+/Assets/Temp.meta
+/Library/
+/debug-glsl-error-in-d3dcompile*
+/sysinfo.txt
+
+# multilib
+/LibraryWSA
+/LibraryAndroid
+
+# ЧТобы не реимпортить после принятия изменений
+/ProjectSettings/ProjectVersion.txt
+
+# ===================================== #
+# Visual Studio / MonoDevelop generated #
+# ===================================== #
+/ExportedObj/
+/obj/
+*.svd
+*.userprefs
+/*.csproj
+*.pidb
+*.suo
+/*.sln
+*.user
+*.unityproj
+*.booproj
+
+# ============ #
+# OS generated #
+# ============ #
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============ #
+# tk2d         #
+# ============ #
+/Assets/-tk2d.asset*
+/Assets/Resources/tk2d*
+/Assets/Resources/tk2d.meta
+
+#==============#
+# Mac
+/SpriteCollections
+/MacBuilds/
+
+# ============ #
+# Others       #
+# ============ #
+/Assets/gmcs.rsp*
+/Assets/csc.rsp*
+/Assets/smcs.rsp*
+/Assets/mcs.rsp*
+/Build/
+/Builds/
+/.project
+/Assets/UnityLibrarySwitcher/
+/Assets/UnityLibrarySwitcher.meta
+/LibrarySwitcherCache/
+/Library*
+
+# === # 
+# WSA #
+/Assets/WSATestCertificate.pfx*
+
+# ================ # 
+# Project specific #
+/Assets/MovedResources/*
+Assets/TerrainComposer.meta
+Assets/TerrainComposer/
