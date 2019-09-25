@@ -3,38 +3,51 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
 
 namespace KillEmpty
 {
+	[Serializable]
+	public class Folder
+	{
+		public bool Toogle;
+		public string Path;
+		public List<Folder> InternalFolders;
+	}
+
 	public class DeleteEmptyFolders : EditorWindow
 	{
-		[Serializable]
-		private class Folder
-		{
-			public bool Toogle;
-			public string Path;
-		}
+		public static readonly string IGNORE_LIST_PATH =
+			$"{Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)}\\IgnoredFolders({Application.productName})";
 
 		private static readonly string META_POSTFIX = ".meta";
 
-		private static readonly string IGNORE_LIST_PATH =
-			$"{Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments)}\\IgnoredFolders({Application.productName})";
-
 		private static List<Folder> FoundedFolders = new List<Folder>();
 		private static ParallelLoopResult ResultSearchEmptyFolders;
-		private static Vector2 ScrollPosition = new Vector2();
+		private static Vector2 ScrollPositionMainList;
+		private static Vector2 ScrollPositionIgnoreList;
 		private static bool IsSearchingComplete = false;
+		private static bool IsShowIgnoreList = false;
 
 		[MenuItem("HelpTools/Delete Empty Folder")]
 		private static void OpenWindow()
 		{
-			IsSearchingComplete = false;
-			EditorWindow Window = GetWindow(typeof(DeleteEmptyFolders), false, "KillEmpty", false);
-			Window.maxSize = new Vector2(600, 300);
-			Window.minSize = new Vector2(600, 300);
+			EditorWindow Window = GetWindow(typeof(DeleteEmptyFolders), false, "Kill Empty", false);
+
+			if (IsShowIgnoreList)
+			{
+				Window.maxSize = new Vector2(1205, 305);
+				Window.minSize = new Vector2(1205, 305);
+			}
+			else
+			{
+				Window.maxSize = new Vector2(600, 305);
+				Window.minSize = new Vector2(600, 305);
+			}
+
 			Window.Focus();
 		}
 
@@ -42,6 +55,7 @@ namespace KillEmpty
 		{
 			string AssetsFolder = Application.dataPath;
 			string[] InternalFolders = Directory.GetDirectories(AssetsFolder);
+			IsSearchingComplete = false;
 			FoundedFolders.Clear();
 
 			ResultSearchEmptyFolders = Parallel.ForEach<string>(InternalFolders, FindEmptyFolders);
@@ -53,59 +67,52 @@ namespace KillEmpty
 
 		private static void FindEmptyFolders(string path)
 		{
-			if (IsEmpty(path))
-			{
-				var folder = new Folder();
-				folder.Path = path;
-				folder.Toogle = false;
-				FoundedFolders.Add(folder);
-			}
-			else
-			{
-				string[] InternalFolders = Directory.GetDirectories(path);
+			CheckFolderIsEmpty(path);
+		}
 
-				if (InternalFolders.Length < 1)
-				{
-					return;
-				}
+		private static bool CheckFolderIsEmpty(string path)
+		{
+			string[] InternalFolders = Directory.GetDirectories(path);
+			bool flag = true;
 
+			if (InternalFolders.Length > 0)
+			{
 				foreach (string folder in InternalFolders)
 				{
-					FindEmptyFolders(folder);
+					if (!CheckFolderIsEmpty(folder))
+					{
+						flag = false;
+					}
 				}
 			}
+
+			if (IsFilesExist(path) || !flag)
+			{
+				return false;
+			}
+
+			var newFolder = new Folder
+			{
+				Path = path,
+				Toogle = false
+			};
+			FoundedFolders.Add(newFolder);
+
+			return true;
 		}
 
 		private static void FilterFoundedFolders()
 		{
-			try
-			{
-				using (StreamReader str = new StreamReader(IGNORE_LIST_PATH, System.Text.Encoding.Default))
-				{
-					string line;
-					while ((line = str.ReadLine()) != null)
-					{
-						foreach (var folder in FoundedFolders)
-						{
-							if (folder.Path == line)
-							{
-								FoundedFolders.Remove(folder);
-								break;
-							}
-						}
-					}
-				}
-			} 
-			catch (Exception e) { }
+			FoundedFolders = IgnoreList.FilterFoundedFolders(FoundedFolders);
 
 			IsSearchingComplete = true;
 		}
 
-		private static bool IsEmpty(string path)
+		private static bool IsFilesExist(string path)
 		{
-			string[] InternalFolders = Directory.GetDirectories(path);
 			string[] InternalFiles = Directory.GetFiles(path);
-			return InternalFolders.Length == 0 && InternalFiles.Length == 0;
+			
+			return !InternalFiles.All(file => file.EndsWith(".meta")); 
 		}
 
 		private static void DeleteFoundedFolders()
@@ -144,9 +151,17 @@ namespace KillEmpty
 			}
 		}
 
-		private static void IgnoreFolder(string path)
+		private static void IgnoreToogleFolders()
 		{
-			File.AppendAllText(IGNORE_LIST_PATH, $"{path}\n" );
+			foreach (var folder in FoundedFolders)
+			{
+				if (folder.Toogle)
+				{
+					IgnoreList.AddIntoIgnoreList(folder.Path);
+				}
+			}
+
+			IgnoreList.ReadIgnoreList();
 			FindEmptyFoldersInAssets();
 		}
 
@@ -154,89 +169,237 @@ namespace KillEmpty
 		{
 			EditorGUILayout.BeginHorizontal();
 
-				if (GUILayout.Button("Search", GUILayout.Width(100)))
-				{
-					FindEmptyFoldersInAssets();
-				}
+				EditorGUILayout.BeginVertical();
 
-				if (GUILayout.Button("Clear", GUILayout.Width(100)))
-				{
-					FoundedFolders.Clear();
-					IsSearchingComplete = false;
-				}
+					EditorGUILayout.BeginHorizontal(GUILayout.Width(600));
 
-				EditorGUILayout.Space();
+						if (GUILayout.Button("Search", GUILayout.Width(100)))
+						{
+							FindEmptyFoldersInAssets();
+						}
 
-				if (GUILayout.Button("Show Ignore List", GUILayout.Width(120)))
-				{
-					if (File.Exists(IGNORE_LIST_PATH))
-					{
-						Process.Start(new ProcessStartInfo("explorer.exe", " /select, " + IGNORE_LIST_PATH));
-					}
-			}
+						if (GUILayout.Button("Clear", GUILayout.Width(100)))
+						{
+							FoundedFolders.Clear();
+							IsSearchingComplete = false;
+						}
 
-				if (GUILayout.Button("Clear Ignore List", GUILayout.Width(120)))
-				{
-					File.Delete(IGNORE_LIST_PATH);
-				}
+						GUILayout.Space(260);
 
-			EditorGUILayout.EndHorizontal();
-
-			if (FoundedFolders.Count > 0 && ResultSearchEmptyFolders.IsCompleted)
-			{
-				EditorGUILayout.BeginScrollView(ScrollPosition, false, false,
-					GUI.skin.horizontalScrollbar, GUI.skin.verticalScrollbar,
-					GUI.skin.textArea);
-
-					foreach (var folder in FoundedFolders)
-					{
-						EditorGUILayout.BeginHorizontal();
-
-							folder.Toogle = EditorGUILayout.ToggleLeft(folder.Path, folder.Toogle, GUI.skin.label);
-							if (GUILayout.Button("Ignore", GUI.skin.box, GUILayout.Width(60)))
+						if (!IsShowIgnoreList)
+						{
+							if (GUILayout.Button("Show Ignore List", GUILayout.Width(120)))
 							{
-								IgnoreFolder(folder.Path);
-								break;
+								IsShowIgnoreList = true;
+								IgnoreList.ReadIgnoreList();
+								OpenWindow();
+							}
+						}
+						else
+						{
+							if (GUILayout.Button("Hide Ignore List", GUILayout.Width(120)))
+							{
+								IsShowIgnoreList = false;
+								OpenWindow();
+							}
+						}
+
+					EditorGUILayout.EndHorizontal();
+
+					if (FoundedFolders.Count > 0 && ResultSearchEmptyFolders.IsCompleted)
+					{
+						ScrollPositionMainList = EditorGUILayout.BeginScrollView(ScrollPositionMainList, true, true,
+							GUI.skin.horizontalScrollbar, GUI.skin.verticalScrollbar,
+							GUI.skin.textArea, GUILayout.Width(595), GUILayout.Height(255));
+
+							foreach (var folder in FoundedFolders)
+							{
+								folder.Toogle = EditorGUILayout.ToggleLeft(folder.Path, folder.Toogle, GUI.skin.label);
 							}
 
-						EditorGUILayout.EndHorizontal();
+						EditorGUILayout.EndScrollView();
 					}
-
-				EditorGUILayout.EndScrollView();
-			}
-			else
-			{
-				if (IsSearchingComplete && ResultSearchEmptyFolders.IsCompleted)
-				{
-					EditorGUILayout.LabelField("Пустых папок не найдено...", GUI.skin.textArea, GUILayout.Width(595), GUILayout.Height(255));
-				}
-				else
-				{
-					EditorGUILayout.LabelField(" ", GUI.skin.textArea, GUILayout.Width(595), GUILayout.Height(255));
-				}
-			}
-
-			EditorGUILayout.BeginHorizontal();
-
-				if (GUILayout.Button("All", GUILayout.Width(100)))
-				{
-					ToogleAllItems(true);
-				}
-
-				if (GUILayout.Button("None", GUILayout.Width(100)))
-				{
-					foreach (var folder in FoundedFolders)
+					else
 					{
-						ToogleAllItems(false);
+						if (IsSearchingComplete && ResultSearchEmptyFolders.IsCompleted)
+						{
+							EditorGUILayout.LabelField("Пустых папок не найдено...", GUI.skin.textArea, GUILayout.Width(595), GUILayout.Height(255));
+						}
+						else
+						{
+							EditorGUILayout.LabelField(" ", GUI.skin.textArea, GUILayout.Width(595), GUILayout.Height(255));
+						}
 					}
-				}
 
-				if (GUILayout.Button("Delete", GUILayout.Width(100)))
-				{
-					DeleteFoundedFolders();
-				}
+					EditorGUILayout.BeginHorizontal();
+
+						if (GUILayout.Button("All", GUILayout.Width(50)))
+						{
+							ToogleAllItems(true);
+						}
+
+						if (GUILayout.Button("None", GUILayout.Width(50)))
+						{
+							ToogleAllItems(false);
+						}
+
+						GUILayout.Space(20);
+
+						if (GUILayout.Button("Delete", GUILayout.Width(100)))
+						{
+							DeleteFoundedFolders();
+						}
+
+						GUILayout.Space(20);
+
+						if (GUILayout.Button("Ignore", GUILayout.Width(100)))
+						{
+							IgnoreToogleFolders();
+						}
 
 			EditorGUILayout.EndHorizontal();
+
+				EditorGUILayout.EndVertical();
+
+		if (!IsShowIgnoreList)
+		{
+			EditorGUILayout.EndHorizontal();
+			return;
+		}
+
+				EditorGUILayout.BeginVertical();
+
+					GUILayout.Space(26);
+
+					if (IgnoreList.IgnoredFolders.Count < 1)
+					{
+						EditorGUILayout.LabelField(" ", GUI.skin.textArea, GUILayout.Width(595), GUILayout.Height(255));
+					}
+					else
+					{
+
+						ScrollPositionIgnoreList = EditorGUILayout.BeginScrollView(ScrollPositionIgnoreList, true, true,
+							GUI.skin.horizontalScrollbar, GUI.skin.verticalScrollbar,
+							GUI.skin.textArea, GUILayout.Width(595), GUILayout.Height(255));
+
+							foreach (var folder in IgnoreList.IgnoredFolders)
+							{
+								folder.Toogle = EditorGUILayout.ToggleLeft(folder.Path, folder.Toogle, GUI.skin.label);
+							}
+
+						EditorGUILayout.EndScrollView();
+					}
+
+					EditorGUILayout.BeginHorizontal();
+
+					if (GUILayout.Button("All", GUILayout.Width(50)))
+					{
+						IgnoreList.ToogleAllItems(true);
+					}
+
+					if (GUILayout.Button("None", GUILayout.Width(50)))
+					{
+						IgnoreList.ToogleAllItems(false);
+					}
+
+					GUILayout.Space(20);
+
+					if (GUILayout.Button("Drop", GUILayout.Width(100)))
+					{
+						IgnoreList.RemoveToogleItems();
+						IgnoreList.WriteIgnoreList();
+					}
+
+					EditorGUILayout.EndHorizontal();
+				
+				EditorGUILayout.EndVertical();
+
+			EditorGUILayout.EndHorizontal();
+		}
+	}
+
+	public class IgnoreList : EditorWindow
+	{
+		public static List<Folder> IgnoredFolders = new List<Folder>();
+
+		public static void AddIntoIgnoreList(string path)
+		{
+			File.AppendAllText(DeleteEmptyFolders.IGNORE_LIST_PATH, $"{path}\n");
+		}
+
+		public static List<Folder> FilterFoundedFolders(List<Folder> folders)
+		{
+			ReadIgnoreList();
+
+			foreach (var ignoredFolder in IgnoredFolders)
+			{
+				string line = ignoredFolder.Path;
+
+				foreach (var folder in folders)
+				{
+					if (folder.Path == line)
+					{
+						folders.Remove(folder);
+						break;
+					}
+				}
+			}
+
+			return folders;
+		}
+
+		public static void RemoveToogleItems()
+		{
+			foreach (var folder in IgnoredFolders)
+			{
+				if (folder.Toogle)
+				{
+					IgnoredFolders.Remove(folder);
+					RemoveToogleItems();
+					break;
+				}
+			}
+		}
+
+		public static void WriteIgnoreList()
+		{
+			File.WriteAllText(DeleteEmptyFolders.IGNORE_LIST_PATH, "");
+
+			foreach (var folder in IgnoredFolders)
+			{
+				AddIntoIgnoreList(folder.Path);
+			}
+
+			ReadIgnoreList();
+		}
+
+		public static void ReadIgnoreList()
+		{
+			try
+			{
+				IgnoredFolders.Clear();
+
+				using (StreamReader str = new StreamReader(DeleteEmptyFolders.IGNORE_LIST_PATH, System.Text.Encoding.Default))
+				{
+					string line;
+					while ((line = str.ReadLine()) != null)
+					{
+						var folder = new Folder();
+						folder.Toogle = false;
+						folder.Path = line;
+						IgnoredFolders.Add(folder);
+					}
+				}
+			}
+			catch (Exception e) { }
+		}
+
+		public static void ToogleAllItems(bool toogle)
+		{
+			foreach (var folder in IgnoredFolders)
+			{
+				folder.Toogle = toogle;
+			}
 		}
 	}
 }
